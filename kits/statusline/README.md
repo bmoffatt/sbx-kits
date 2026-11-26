@@ -1,0 +1,67 @@
+## sbx-statusline
+
+Part of [`bmoffatt/sbx-kits`](https://github.com/bmoffatt/sbx-kits). My Claude Code statusline: directory, git
+branch, model, context window, cost, and 5h/7d rate-limit gauges. It ships two ways, both using the same script:
+
+- [Claude Code plugin](#claude-code-plugin-host) for Claude Code running directly on your machine
+- [sbx kit](#sbx-claude-sandbox-kit) for Docker sandboxes
+
+A leading icon shows where Claude is running: apple on the macOS host, whale plus the sandbox name inside a sandbox,
+penguin on other Linux.
+
+### Claude Code plugin (host)
+
+Requirements: `jq`, and a [Nerd Font](https://www.nerdfonts.com/) in your terminal for the icons.
+
+``` text
+/plugin marketplace add bmoffatt/sbx-kits
+/plugin install sbx-statusline@sbx-kits
+```
+
+That is the whole setup. A plugin can't set `statusLine` itself, so the plugin ships a `SessionStart` hook
+(`scripts/sync.sh`) that runs every session and:
+
+- copies `files/home/.claude/statusline.sh` to `~/.claude/statusline.sh` (so plugin updates reach you)
+- merges `statusLine` and `preferredNotifChannel` into `~/.claude/settings.json`, leaving your other keys alone
+
+It overwrites those two settings and the script on every session, so local edits to either are reverted. Start a new
+session after installing to see the line. To remove it, uninstall the plugin and delete the `statusLine` key from
+`~/.claude/settings.json`.
+
+### sbx Claude sandbox kit
+
+The sbx mixin kit adds the same statusline to a sandbox. It is a [v3 kit](https://github.com/docker/sandbox-kit-spec)
+(`sbx-statusline.yaml` plus `sbx-statusline.dockerfile`), so it composes with the v3 `claude` kit but **not** with v1/v2
+kits: sbx rejects a sandbox that mixes the two formats. Use the v3 build of any other kit you add alongside it (for
+example `docker.io/sbx/git-ssh-sign`). It requires the `claude` kit and `jq` in the sandbox.
+
+Create a sandbox with the kit, from the project directory:
+
+``` sh
+sbx run claude --kit docker.io/bmoffatt/sbx-statusline:latest --name my-project
+```
+
+`docker.io/` is on sbx's default kit allowlist, so no setup is needed. A push to `main` that changes this directory republishes `:latest` to
+[Docker Hub](https://hub.docker.com/r/bmoffatt/sbx-statusline), along with a tag for the `version:` in
+`sbx-statusline.yaml` (see `.github/workflows/publish.yml`). Bump `version:` when the kit changes.
+
+Later attaches are just `sbx run my-project`. `--kit` applies only when the sandbox is created, so an existing sandbox
+must be removed (`sbx rm`) and recreated to pick it up.
+
+#### From a local checkout
+
+sbx builds a kit directory on demand, so there is no registry or push step while iterating:
+
+``` sh
+sbx run claude --kit ./kits/statusline --name my-project
+```
+
+#### From git instead
+
+sbx only installs kits from allowlisted sources. Add my GitHub account first (this replaces the list, so keep
+`docker.io/`):
+
+``` sh
+sbx settings set kit.allowedSources '["docker.io/","github.com/bmoffatt/"]'
+sbx run claude --kit 'git+https://github.com/bmoffatt/sbx-kits.git#dir=kits/statusline' --name my-project
+```

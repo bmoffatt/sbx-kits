@@ -6,8 +6,8 @@ kind: mixin
 # The kit's own version: the tag this kit publishes under (alongside :latest),
 # and the fallback for anything unversioned. Bump it when the declarations or
 # the shipped script change.
-version: "1.0.0"
-sourceUrl: https://github.com/bmoffatt/sbx-statusline
+version: "1.0.1"
+sourceUrl: https://github.com/bmoffatt/sbx-kits/tree/main/kits/statusline
 # MIGRATION NOTE: v2 had no `requires`. The kit has always assumed both of
 # these, and a v3 mixin can say so:
 #   claude   - the install hook below edits Claude Code's settings.json, and

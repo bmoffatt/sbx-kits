@@ -1,66 +1,43 @@
-## sbx-statusline
+# sbx-kits
 
-[`bmoffatt/sbx-statusline`](https://github.com/bmoffatt/sbx-statusline) is my Claude Code statusline: directory, git
-branch, model, context window, cost, and 5h/7d rate-limit gauges. It ships two ways, both using the same script:
+My [sbx](https://docs.docker.com/ai/sandboxes/) (Docker Sandboxes) kits, one directory each under `kits/`. Every kit ships two ways from the same files: an sbx kit published to Docker Hub, and a Claude Code plugin from this repo's marketplace for Claude Code on the host.
 
-- [Claude Code plugin](#claude-code-plugin-host) for Claude Code running directly on your machine
-- [sbx kit](#sbx-claude-sandbox-kit) for Docker sandboxes
+| Kit | What it does | sbx kit | Claude Code plugin |
+| --- | --- | --- | --- |
+| [`statusline`](kits/statusline) | Statusline: directory, git branch, model, context window, cost, 5h/7d rate-limit gauges | `docker.io/bmoffatt/sbx-statusline` | `sbx-statusline` |
+| [`rules`](kits/rules) | Claude rules in `~/.claude/rules/` | `docker.io/bmoffatt/sbx-rules` | `sbx-rules` |
 
-A leading icon shows where Claude is running: apple on the macOS host, whale plus the sandbox name inside a sandbox,
-penguin on other Linux.
+## Use
 
-### Claude Code plugin (host)
+In a sandbox (v3 kits compose with each other; sbx rejects a mix of v1/v2 and v3):
 
-Requirements: `jq`, and a [Nerd Font](https://www.nerdfonts.com/) in your terminal for the icons.
+``` sh
+sbx run claude --kit docker.io/bmoffatt/sbx-statusline:latest --kit docker.io/bmoffatt/sbx-rules:latest --name my-project
+```
+
+On the host:
 
 ``` text
-/plugin install sbx-statusline --marketplace bmoffatt/sbx-statusline
+/plugin marketplace add bmoffatt/sbx-kits
+/plugin install sbx-statusline@sbx-kits
+/plugin install sbx-rules@sbx-kits
 ```
 
-That is the whole setup. A plugin can't set `statusLine` itself, so the plugin ships a `SessionStart` hook
-(`scripts/sync.sh`) that runs every session and:
+Each kit's README has the details.
 
-- copies `files/home/.claude/statusline.sh` to `~/.claude/statusline.sh` (so plugin updates reach you)
-- merges `statusLine` and `preferredNotifChannel` into `~/.claude/settings.json`, leaving your other keys alone
+### If you installed the plugin from `bmoffatt/sbx-statusline`
 
-It overwrites those two settings and the script on every session, so local edits to either are reverted. Start a new
-session after installing to see the line. To remove it, uninstall the plugin and delete the `statusLine` key from
-`~/.claude/settings.json`.
+The repo was renamed to `sbx-kits` and the marketplace with it. Move over once:
 
-### sbx Claude sandbox kit
-
-The sbx mixin kit adds the same statusline to a sandbox. It is a [v3 kit](https://github.com/docker/sandbox-kit-spec)
-(`sbx-statusline.yaml` plus `sbx-statusline.dockerfile`), so it composes with the v3 `claude` kit but **not** with v1/v2
-kits: sbx rejects a sandbox that mixes the two formats. Use the v3 build of any other kit you add alongside it (for
-example `docker.io/sbx/git-ssh-sign`). It requires the `claude` kit and `jq` in the sandbox.
-
-Create a sandbox with the kit, from the project directory:
-
-``` sh
-sbx run claude --kit docker.io/bmoffatt/sbx-statusline:latest --name my-project
+``` text
+/plugin uninstall sbx-statusline@sbx-statusline
+/plugin marketplace remove sbx-statusline
+/plugin marketplace add bmoffatt/sbx-kits
+/plugin install sbx-statusline@sbx-kits
 ```
 
-`docker.io/` is on sbx's default kit allowlist, so no setup is needed. Every push to `main` republishes `:latest` to
-[Docker Hub](https://hub.docker.com/r/bmoffatt/sbx-statusline), along with a tag for the `version:` in
-`sbx-statusline.yaml` (see `.github/workflows/publish.yml`). Bump `version:` when the kit changes.
+The Docker Hub image names are unchanged.
 
-Later attaches are just `sbx run my-project`. `--kit` applies only when the sandbox is created, so an existing sandbox
-must be removed (`sbx rm`) and recreated to pick it up.
+## Publishing
 
-#### From a local checkout
-
-sbx builds a kit directory on demand, so there is no registry or push step while iterating:
-
-``` sh
-sbx run claude --kit . --name my-project
-```
-
-#### From git instead
-
-sbx only installs kits from allowlisted sources. Add my GitHub account first (this replaces the list, so keep
-`docker.io/`):
-
-``` sh
-sbx settings set kit.allowedSources '["docker.io/","github.com/bmoffatt/"]'
-sbx run claude --kit 'git+https://github.com/bmoffatt/sbx-statusline' --name my-project
-```
+`.github/workflows/publish.yml` builds every kit on pull requests, and on a push to `main` publishes the kits whose directory changed: `:latest` plus the `version:` from the kit's descriptor. It needs the `DOCKERHUB_USERNAME` variable and `DOCKERHUB_TOKEN` secret on this repo. See [CLAUDE.md](CLAUDE.md) for the layout and how to add a kit.

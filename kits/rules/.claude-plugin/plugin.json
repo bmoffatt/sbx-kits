@@ -1,0 +1,9 @@
+{
+  "name": "sbx-rules",
+  "displayName": "sbx rules",
+  "description": "Claude rules: re-read files before editing and prefer small targeted edits when others may be editing too",
+  "author": { "name": "Bryan Moffatt" },
+  "homepage": "https://github.com/bmoffatt/sbx-kits/tree/main/kits/rules",
+  "repository": "https://github.com/bmoffatt/sbx-kits",
+  "keywords": ["rules"]
+}
