@@ -1,24 +1,57 @@
 name: publish
 
-# Push the kit to Docker Hub on every push to main: :latest, plus the version
-# from sbx-statusline.yaml (bump `version:` there to cut a new pinned tag).
+# Each directory under kits/ is one sbx kit, published to Docker Hub as
+# docker.io/<DOCKERHUB_USERNAME>/sbx-<kit>: :latest, plus the version from the
+# kit's descriptor (bump `version:` there to cut a new pinned tag).
+#
+# - pull requests: build every kit for both platforms, publish nothing
+# - push to main: publish only the kits whose directory changed, so an unrelated
+#   push does not re-push (and move) another kit's pinned version tag
+# - manual run: publish every kit
 on:
+  pull_request:
+    paths: ["kits/**", ".github/workflows/publish.yml"]
   push:
     branches: [main]
   workflow_dispatch:
 
-env:
-  REPO: docker.io/${{ vars.DOCKERHUB_USERNAME }}/sbx-statusline
-
 jobs:
-  push:
+  kit:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        kit: [statusline, rules]
+    env:
+      DIR: kits/${{ matrix.kit }}
+      DESCRIPTOR: kits/${{ matrix.kit }}/sbx-${{ matrix.kit }}.yaml
+      REPO: docker.io/${{ vars.DOCKERHUB_USERNAME }}/sbx-${{ matrix.kit }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Publish this kit?
+        id: plan
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          publish=false
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            publish=true
+          elif [ "$GITHUB_EVENT_NAME" = push ]; then
+            # a new branch (all-zero BEFORE) or an unknown BEFORE: publish to be safe
+            if [ -z "${BEFORE//0/}" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null ||
+              ! git diff --quiet "$BEFORE" HEAD -- "$DIR"; then
+              publish=true
+            fi
+          fi
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
 
       - uses: docker/login-action@v3
+        if: steps.plan.outputs.publish == 'true'
         with:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -27,22 +60,34 @@ jobs:
       # descriptor rides in a manifest annotation, and the classic image store
       # can discard it on push.
       - uses: docker/setup-buildx-action@v3
+        if: steps.plan.outputs.publish == 'true' || github.event_name == 'pull_request'
         with:
           driver: docker-container
 
       - name: Read kit version
         id: ver
+        if: steps.plan.outputs.publish == 'true'
         run: |
-          v=$(sed -n 's/^version: *"\{0,1\}\([0-9][0-9A-Za-z.-]*\)"\{0,1\} *$/\1/p' sbx-statusline.yaml)
-          [ -n "$v" ] || { echo "no version: in sbx-statusline.yaml" >&2; exit 1; }
+          v=$(sed -n 's/^version: *"\{0,1\}\([0-9][0-9A-Za-z.-]*\)"\{0,1\} *$/\1/p' "$DESCRIPTOR")
+          [ -n "$v" ] || { echo "no version: in $DESCRIPTOR" >&2; exit 1; }
           echo "version=$v" >> "$GITHUB_OUTPUT"
 
       # v3 kits are ordinary OCI images: one build, one push, and the frontend
-      # named by the descriptor's `# syntax=` line does the rest. No QEMU is
-      # needed; the recipe's only RUN is pinned to the build platform.
-      - name: Build and push kit
+      # named by the descriptor's `# syntax=` line does the rest. The build
+      # context is the kit's own directory. No QEMU is needed; the recipes' only
+      # RUN is pinned to the build platform.
+      - name: Build kit
+        if: steps.plan.outputs.publish == 'true' || github.event_name == 'pull_request'
+        env:
+          PUBLISH: ${{ steps.plan.outputs.publish }}
+          VERSION: ${{ steps.ver.outputs.version }}
         run: |
-          docker buildx build . -f sbx-statusline.yaml \
+          out=(--output type=cacheonly)
+          tags=()
+          if [ "$PUBLISH" = true ]; then
+            out=(--push)
+            tags=(-t "$REPO:latest" -t "$REPO:$VERSION")
+          fi
+          docker buildx build "$DIR" -f "$DESCRIPTOR" \
             --platform linux/amd64,linux/arm64 \
-            --provenance=mode=min --push \
-            -t "$REPO:latest" -t "$REPO:${{ steps.ver.outputs.version }}"
+            --provenance=mode=min "${out[@]}" "${tags[@]}"

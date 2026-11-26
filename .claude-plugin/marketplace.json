@@ -1,11 +1,17 @@
 {
-  "name": "sbx-statusline",
+  "name": "sbx-kits",
   "owner": { "name": "Bryan Moffatt" },
+  "metadata": { "description": "Claude Code plugins that mirror the sbx (Docker Sandboxes) kits in this repo" },
   "plugins": [
     {
       "name": "sbx-statusline",
-      "source": "./",
+      "source": "./kits/statusline",
       "description": "Claude Code statusline: directory, git, model, context, cost, and rate-limit gauges"
+    },
+    {
+      "name": "sbx-rules",
+      "source": "./kits/rules",
+      "description": "Claude rules: re-read files before editing and prefer small targeted edits when others may be editing too"
     }
   ]
 }

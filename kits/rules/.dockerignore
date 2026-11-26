@@ -1,0 +1,7 @@
+# The kit's build context is this directory (kits/rules). Only files/home/ is
+# copied into the overlay; keep the rest (the host-side Claude Code plugin, docs)
+# out of the context.
+.claude-plugin
+hooks
+scripts
+README.md

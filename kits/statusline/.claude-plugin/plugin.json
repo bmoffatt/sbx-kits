@@ -3,7 +3,7 @@
   "displayName": "sbx statusline",
   "description": "Claude Code statusline: directory, git, model, context, cost, and rate-limit gauges",
   "author": { "name": "Bryan Moffatt" },
-  "homepage": "https://github.com/bmoffatt/sbx-statusline",
-  "repository": "https://github.com/bmoffatt/sbx-statusline",
+  "homepage": "https://github.com/bmoffatt/sbx-kits/tree/main/kits/statusline",
+  "repository": "https://github.com/bmoffatt/sbx-kits",
   "keywords": ["statusline"]
 }
