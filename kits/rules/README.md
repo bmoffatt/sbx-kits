@@ -8,6 +8,11 @@ Part of [`bmoffatt/sbx-kits`](https://github.com/bmoffatt/sbx-kits). Claude rule
 | Rule | What it does |
 | --- | --- |
 | `collaborative-editing` | Re-read files before editing and prefer small targeted edits, since the user or other agents may be editing the same files concurrently. |
+| `github-banner` | End anything published to GitHub (PR descriptions, comments, review and issue bodies) with the Claude banner. |
+
+### The banner hook
+
+`github-banner` is backed by a `PreToolUse` hook (`files/home/.claude/hooks/require-github-banner.sh`). It rejects `gh pr|issue create|comment`, `gh pr|issue review|edit` with a body, and `gh api -X POST|PATCH|PUT` calls on comments, reviews, pulls or issues when the text lacks the banner, and tells Claude how to fix it. In the plugin it is registered through `hooks/hooks.json`; in the sbx kit an install hook merges it into `~/.claude/settings.json` (idempotent, keeps existing hooks). It does not cover MCP GitHub tools (the rule does), and a `gh pr review --approve` with no body is left alone. The banner text lives in the rule and in the script's `BANNER`; keep them in sync.
 
 ### Claude Code plugin (host)
 
@@ -20,7 +25,7 @@ A plugin can't ship rules, so the plugin ships a `SessionStart` hook (`scripts/s
 
 ### sbx Claude sandbox kit
 
-It is a [v3 kit](https://github.com/docker/sandbox-kit-spec) (`sbx-rules.yaml` plus `sbx-rules.dockerfile`), so it composes with the v3 `claude` kit and with `sbx-statusline`, but **not** with v1/v2 kits: sbx rejects a sandbox that mixes the two formats. It requires the `claude` kit.
+It is a [v3 kit](https://github.com/docker/sandbox-kit-spec) (`sbx-rules.yaml` plus `sbx-rules.dockerfile`), so it composes with the v3 `claude` kit and with `sbx-statusline`, but **not** with v1/v2 kits: sbx rejects a sandbox that mixes the two formats. It requires the `claude` kit and `jq`.
 
 ``` sh
 sbx run claude --kit docker.io/bmoffatt/sbx-rules:latest --name my-project
