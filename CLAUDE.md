@@ -19,5 +19,6 @@ Monorepo of sbx (Docker Sandboxes) kits. Each kit is a directory under `kits/` a
 ## Checking changes
 
 - Plugins and marketplace: `claude plugin validate .` and `claude plugin validate kits/<name>`.
+- Kit tests: `kits/<name>/tests/*.test.sh` (CI runs them before building the kit).
 - Kit build (no push): `docker buildx build kits/<name> -f kits/<name>/sbx-<name>.yaml --platform linux/amd64,linux/arm64 --provenance=mode=min --output type=cacheonly`, using a `docker-container` builder. `sbx kit validate --offline` can't check v3 source kits.
 - A kit and its plugin must ship the same files; keep `sync.sh` in step with the kit's install hook.

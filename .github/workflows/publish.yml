@@ -72,6 +72,16 @@ jobs:
           [ -n "$v" ] || { echo "no version: in $DESCRIPTOR" >&2; exit 1; }
           echo "version=$v" >> "$GITHUB_OUTPUT"
 
+      - name: Test kit
+        if: steps.plan.outputs.publish == 'true' || github.event_name == 'pull_request'
+        run: |
+          shopt -s nullglob
+          for t in "$DIR"/tests/*.test.sh; do
+            echo "::group::$t"
+            bash "$t"
+            echo "::endgroup::"
+          done
+
       # v3 kits are ordinary OCI images: one build, one push, and the frontend
       # named by the descriptor's `# syntax=` line does the rest. The build
       # context is the kit's own directory. No QEMU is needed; the recipes' only
