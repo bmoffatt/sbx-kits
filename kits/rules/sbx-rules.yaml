@@ -5,7 +5,7 @@ description: Claude rules for sandboxes
 kind: mixin
 # The kit's own version: the tag this kit publishes under (alongside :latest).
 # Bump it when the shipped rules change.
-version: "1.2.1"
+version: "1.2.2"
 sourceUrl: https://github.com/bmoffatt/sbx-kits/tree/main/kits/rules
 # claude   - the rules land in ~/.claude/rules/, and the install hook below
 #            edits Claude Code's settings.json. Depending on claude orders this

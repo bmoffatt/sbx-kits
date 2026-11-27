@@ -23,7 +23,7 @@ Claude's text.
 <!-- claude:end id=my-project -->
 ```
 
-The markers are HTML comments, so GitHub shows only the banner and the text. The model and effort are the calling agent's own, including sub-agents: the hook passes gh-claude the agent's transcript (where the model is) and effort level. The name comes from the hostname (labelled `sbx` when `IS_SANDBOX=1`).
+The markers are HTML comments, so GitHub shows only the banner and the text. The model and effort are the calling agent's own, including sub-agents: the hook passes gh-claude the agent's transcript (where the model is) and effort level. The name comes from `$HOSTNAME`, up to the first dot (labelled `sbx` when `IS_SANDBOX=1`).
 
 - **New posts** (`pr create`, `pr|issue comment`, `pr review`, `api` POST) are just the block.
 - **Edits** (`pr|issue edit`, `comment-edit <URL>`, `api` PATCH/PUT) fetch the current text, replace this sandbox's block where it is, or append one after a `---` (reusing yours if the text already ends with one). Every other line passes through byte for byte. So you can write your own words above or below Claude's block, and other sandboxes' blocks are left alone.
