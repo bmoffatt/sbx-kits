@@ -46,18 +46,29 @@ TEXT=$(cat "$file"; printf x)
 TEXT=${TEXT%x}
 
 # ---- who is writing ---------------------------------------------------------------
-# The session's transcript has the model ID; CLAUDE_CODE_SESSION_ID names it.
-model_id=""
-cfg=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
-if [ -n "${CLAUDE_CODE_SESSION_ID:-}" ]; then
-  for t in "$cfg"/projects/*/"$CLAUDE_CODE_SESSION_ID".jsonl; do
-    [ -f "$t" ] || continue
-    model_id=$(tail -n 500 "$t" 2>/dev/null |
-      jq -r 'select(.type == "assistant") | .message.model // empty | select(. != "<synthetic>")' 2>/dev/null |
-      tail -n 1)
-    break
+# The calling agent's transcript has its model ID. The banner hook exports
+# GH_CLAUDE_TRANSCRIPT (and GH_CLAUDE_EFFORT) per agent, so a sub-agent gets its
+# own; without the hook, fall back to the session's transcript, which is the
+# parent's when a sub-agent calls.
+transcript=${GH_CLAUDE_TRANSCRIPT:-}
+if [ -z "$transcript" ] && [ -n "${CLAUDE_CODE_SESSION_ID:-}" ]; then
+  for t in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/projects/*/"$CLAUDE_CODE_SESSION_ID".jsonl; do
+    [ -f "$t" ] && { transcript=$t; break; }
   done
 fi
+model_id=""
+# On an agent's first reply the assistant entry can reach the file a moment after
+# the tool starts, so give it up to 2s.
+tries=0
+while [ -f "$transcript" ] && [ $tries -lt 5 ]; do
+  model_id=$(tail -n 500 "$transcript" 2>/dev/null |
+    jq -r 'select(.type == "assistant") | .message.model // empty | select(. != "<synthetic>")' 2>/dev/null |
+    tail -n 1)
+  [ -n "$model_id" ] && break
+  tries=$((tries + 1))
+  [ $tries -lt 5 ] && sleep 0.5
+done
+effort=${GH_CLAUDE_EFFORT:-${CLAUDE_EFFORT:-}}
 # claude-opus-5-5 -> Opus 5.5, claude-haiku-4-5-20251001 -> Haiku 4.5
 model=""
 if [[ $model_id =~ ^claude-([a-z]+)-([0-9]+)(-([0-9]{1,2}))?(-[0-9]{8})?$ ]]; then
@@ -71,13 +82,15 @@ host=${HOSTNAME:-$(hostname 2>/dev/null)}
 host=${host%%.*}
 BANNER=$BASE
 [ -n "$model" ] && BANNER+=" · $model"
-[ -n "${CLAUDE_EFFORT:-}" ] && BANNER+=" · $CLAUDE_EFFORT"
+[ -n "$effort" ] && BANNER+=" · $effort"
 [ "${IS_SANDBOX:-}" = 1 ] && [ -n "$host" ] && BANNER+=" · sbx $host"
 # The block's owner: the sandbox (or host) name, which outlives model and effort changes.
 ID=$(printf '%s' "${host:-claude}" | tr -c 'A-Za-z0-9._-' '-')
 
 # ---- the merge ----------------------------------------------------------------------
-# $1 = current text ("" for a new post). Prints the text to publish, or dies.
+# $1 = current text ("" for a new post). Prints the text to publish, or dies. When an
+# edit finds no block of this sandbox's, it says so on stderr, naming the other
+# Claude blocks it left alone, so the agent can tell the user.
 merge() {
   local out
   out=$(jq -n -c --arg old "$1" --arg text "$TEXT" --arg file "$file" --arg id "$ID" --arg banner "$BANNER" --arg base "$BASE" '
@@ -92,6 +105,7 @@ merge() {
     | ($old | split("\n")) as $l
     | [range(0; $l | length) | select(($l[.] | trim) == $b)] as $bi
     | [range(0; $l | length) | select(($l[.] | trim) == $e)] as $ei
+    | [$l[] | trim | capture("^<!-- claude:begin id=(?<id>\\S+) -->$") | .id | select(. != $id)] as $others
     | if $t == "" then {error: "\($file) is empty"}
       elif ($t | test("<!-- *claude:(begin|end)")) then
         {error: "the text contains a claude:begin/end marker. Write only your own text; gh-claude adds the markers and the banner."}
@@ -99,8 +113,12 @@ merge() {
         if ($old | trim) == "" then {body: $block}
         else ($old | sub("\\s+$"; "")) as $o
           # The user may already have ended their text with a rule for Claude.
-          | if ($o | split("\n") | last | is_hr) then {body: "\($o)\n\n\($block)"}
-            else {body: "\($o)\n\n---\n\n\($block)"} end
+          | (if ($o | split("\n") | last | is_hr) then {body: "\($o)\n\n\($block)"}
+             else {body: "\($o)\n\n---\n\n\($block)"} end)
+          + {note: ("no block for id=\($id) in the current text, so a new one was appended at the end."
+              + if ($others | length) > 0 then
+                  " Left untouched: the Claude blocks of \($others | unique | map("id=" + .) | join(", ")). If the user wanted one of those changed, tell them and give them replacement text to paste."
+                else "" end)}
         end
       elif ($bi | length) == 1 and ($ei | length) == 1 and $bi[0] < $ei[0] then
         {body: ($l[:($bi[0])] + [$block] + $l[($ei[0] + 1):] | join("\n"))}
@@ -109,6 +127,9 @@ merge() {
       end') || die "jq failed"
   if jq -e 'has("error")' <<<"$out" >/dev/null; then
     die "$(jq -r .error <<<"$out")"
+  fi
+  if jq -e 'has("note")' <<<"$out" >/dev/null; then
+    printf 'gh-claude: %s\n' "$(jq -r .note <<<"$out")" >&2
   fi
   jq -j .body <<<"$out"
 }
@@ -163,6 +184,11 @@ api() {
     *) die "method $method publishes no text." ;;
   esac
   publish "$old"
+  # Print the comment's URL, as `gh pr comment` does, unless the caller filters.
+  case " ${rest[*]-} " in
+    *" --jq "* | *" -q "* | *" --jq="* | *" --template "* | *" -t "*) ;;
+    *) rest+=(--jq '.html_url // .url // empty') ;;
+  esac
   gh api "$endpoint" -X "$method" ${rest[@]+"${rest[@]}"} -F "body=@$tmp"
 }
 
