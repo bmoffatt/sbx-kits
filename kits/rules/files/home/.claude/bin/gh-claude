@@ -1,0 +1,207 @@
+#!/usr/bin/env bash
+# Publish Claude's text to GitHub with the banner, leaving everyone else's text alone.
+#
+#   gh-claude FILE pr|issue create [gh args...]
+#   gh-claude FILE pr|issue comment [N|URL] [gh args...]
+#   gh-claude FILE pr review [N|URL] --comment|--approve|--request-changes [gh args...]
+#   gh-claude FILE pr|issue edit [N|URL] [gh args...]       the description
+#   gh-claude FILE comment-edit URL                          a comment or review, by URL
+#   gh-claude FILE api ENDPOINT [-X METHOD] [gh api args...]
+#
+# FILE holds only Claude's own text: no banner, no markers. gh-claude wraps it in a
+# block that belongs to this sandbox (or host, outside a sandbox):
+#
+#   <!-- claude:begin id=my-project -->
+#   🤖 [Claude Code](https://claude.com/claude-code) · Opus 5.5 · high effort · sandbox my-project
+#
+#   ...FILE...
+#
+#   <!-- claude:end id=my-project -->
+#
+# A new post is just that block. An edit fetches the current text and replaces this
+# sandbox's block where it is, or appends one after a --- rule. Every other line is
+# passed through byte for byte: the user's words, other sandboxes' blocks, older
+# posts without markers. The markers are HTML comments, so GitHub doesn't show them.
+#
+# Written for bash 3.2 as well (macOS hosts run the plugin form).
+set -u
+
+BASE='🤖 [Claude Code](https://claude.com/claude-code)'
+
+die() {
+  printf 'gh-claude: %s\n' "$1" >&2
+  exit 2
+}
+usage() {
+  sed -n '3,9s/^# //p' "$0" >&2
+  exit 2
+}
+
+[ $# -ge 3 ] || usage
+command -v jq >/dev/null || die "needs jq"
+file=$1
+shift
+[ -f "$file" ] || die "text file $file not found"
+TEXT=$(cat "$file"; printf x)
+TEXT=${TEXT%x}
+
+# ---- who is writing ---------------------------------------------------------------
+# The session's transcript has the model ID; CLAUDE_CODE_SESSION_ID names it.
+model_id=""
+cfg=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
+if [ -n "${CLAUDE_CODE_SESSION_ID:-}" ]; then
+  for t in "$cfg"/projects/*/"$CLAUDE_CODE_SESSION_ID".jsonl; do
+    [ -f "$t" ] || continue
+    model_id=$(tail -n 500 "$t" 2>/dev/null |
+      jq -r 'select(.type == "assistant") | .message.model // empty | select(. != "<synthetic>")' 2>/dev/null |
+      tail -n 1)
+    break
+  done
+fi
+# claude-opus-5-5 -> Opus 5.5, claude-haiku-4-5-20251001 -> Haiku 4.5
+model=""
+if [[ $model_id =~ ^claude-([a-z]+)-([0-9]+)(-([0-9]{1,2}))?(-[0-9]{8})?$ ]]; then
+  fam=${BASH_REMATCH[1]}
+  model="$(printf '%s' "${fam:0:1}" | tr '[:lower:]' '[:upper:]')${fam:1} ${BASH_REMATCH[2]}"
+  [ -n "${BASH_REMATCH[4]}" ] && model+=".${BASH_REMATCH[4]}"
+elif [ -n "$model_id" ]; then
+  model=$model_id
+fi
+host=${HOSTNAME:-$(hostname 2>/dev/null)}
+host=${host%%.*}
+BANNER=$BASE
+[ -n "$model" ] && BANNER+=" · $model"
+[ -n "${CLAUDE_EFFORT:-}" ] && BANNER+=" · $CLAUDE_EFFORT effort"
+[ "${IS_SANDBOX:-}" = 1 ] && [ -n "$host" ] && BANNER+=" · sandbox $host"
+# The block's owner: the sandbox (or host) name, which outlives model and effort changes.
+ID=$(printf '%s' "${host:-claude}" | tr -c 'A-Za-z0-9._-' '-')
+
+# ---- the merge ----------------------------------------------------------------------
+# $1 = current text ("" for a new post). Prints the text to publish, or dies.
+merge() {
+  local out
+  out=$(jq -n -c --arg old "$1" --arg text "$TEXT" --arg file "$file" --arg id "$ID" --arg banner "$BANNER" --arg base "$BASE" '
+    def trim: sub("^\\s+"; "") | sub("\\s+$"; "");
+    def is_hr: test("^ {0,3}([-*_])( *\\1){2,}\\s*$");
+    ($text | trim) as $t0
+    # A banner Claude added by habit is dropped; gh-claude writes the current one.
+    | (if ($t0 | startswith($base)) then ($t0 | sub("^[^\n]*"; "") | trim) else $t0 end) as $t
+    | "<!-- claude:begin id=\($id) -->" as $b
+    | "<!-- claude:end id=\($id) -->" as $e
+    | ([$b, $banner, "", $t, "", $e] | join("\n")) as $block
+    | ($old | split("\n")) as $l
+    | [range(0; $l | length) | select(($l[.] | trim) == $b)] as $bi
+    | [range(0; $l | length) | select(($l[.] | trim) == $e)] as $ei
+    | if $t == "" then {error: "\($file) is empty"}
+      elif ($t | test("<!-- *claude:(begin|end)")) then
+        {error: "the text contains a claude:begin/end marker. Write only your own text; gh-claude adds the markers and the banner."}
+      elif ($bi | length) == 0 and ($ei | length) == 0 then
+        if ($old | trim) == "" then {body: $block}
+        else ($old | sub("\\s+$"; "")) as $o
+          # The user may already have ended their text with a rule for Claude.
+          | if ($o | split("\n") | last | is_hr) then {body: "\($o)\n\n\($block)"}
+            else {body: "\($o)\n\n---\n\n\($block)"} end
+        end
+      elif ($bi | length) == 1 and ($ei | length) == 1 and $bi[0] < $ei[0] then
+        {body: ($l[:($bi[0])] + [$block] + $l[($ei[0] + 1):] | join("\n"))}
+      else
+        {error: "the current text has a damaged or duplicated block for id=\($id) (begin markers: \($bi | length), end markers: \($ei | length)). Leave it alone and give the user the full new text to paste in by hand."}
+      end') || die "jq failed"
+  if jq -e 'has("error")' <<<"$out" >/dev/null; then
+    die "$(jq -r .error <<<"$out")"
+  fi
+  jq -j .body <<<"$out"
+}
+
+tmp=$(mktemp "${TMPDIR:-/tmp}/gh-claude.XXXXXX")
+trap 'rm -f "$tmp"' EXIT
+publish() { # $1 = current text
+  local body
+  body=$(merge "$1"; printf x) || exit
+  printf '%s' "${body%x}" >"$tmp"
+}
+
+# Flags that would pass text past gh-claude.
+reject_body_flags() {
+  local a
+  for a in "$@"; do
+    case $a in
+      -b | --body | --body=* | -F | --body-file | --body-file=* | -f | --fill | --fill-first | --fill-verbose | -e | --editor | -w | --web)
+        die "don't pass $a: the text comes from FILE." ;;
+      --edit-last)
+        die "--edit-last isn't supported: use gh-claude FILE comment-edit <comment URL>." ;;
+    esac
+  done
+}
+
+# ---- gh api ---------------------------------------------------------------------------
+# $1 = endpoint, $2 = default method, rest = gh api args
+api() {
+  local endpoint=$1 method=$2 a old json
+  shift 2
+  local rest
+  rest=()
+  while [ $# -gt 0 ]; do
+    a=$1
+    shift
+    case $a in
+      -X | --method) method=${1:-}; [ $# -gt 0 ] && shift ;;
+      --method=*) method=${a#*=} ;;
+      -X?*) method=${a#-X} ;;
+      --input | --input=*) die "don't pass --input: the text comes from FILE." ;;
+      *body=*) die "don't pass a body field: the text comes from FILE." ;;
+      *) rest+=("$a") ;;
+    esac
+  done
+  method=$(printf '%s' "$method" | tr '[:lower:]' '[:upper:]')
+  old=""
+  case $method in
+    POST) ;;
+    PATCH | PUT)
+      json=$(gh api "$endpoint" 2>/dev/null) || die "couldn't read $endpoint to merge the edit. Retry."
+      old=$(jq -j '.body // ""' <<<"$json") ;;
+    *) die "method $method publishes no text." ;;
+  esac
+  publish "$old"
+  gh api "$endpoint" -X "$method" ${rest[@]+"${rest[@]}"} -F "body=@$tmp"
+}
+
+# ---- dispatch ---------------------------------------------------------------------------
+case "$1 $2" in
+  "pr create" | "issue create" | "pr comment" | "issue comment" | "pr review")
+    reject_body_flags "${@:3}"
+    publish ""
+    gh "$@" --body-file "$tmp" ;;
+  "pr edit" | "issue edit")
+    reject_body_flags "${@:3}"
+    target=""
+    [ $# -ge 3 ] && [[ $3 != -* ]] && target=$3
+    repo=()
+    prev=""
+    for a in "${@:3}"; do
+      case $prev in -R | --repo) repo=(-R "$a") ;; esac
+      case $a in --repo=*) repo=(-R "${a#*=}") ;; esac
+      prev=$a
+    done
+    json=$(gh "$1" view $target ${repo[@]+"${repo[@]}"} --json body 2>/dev/null) ||
+      die "couldn't read the current $1 description to merge the edit. Retry."
+    publish "$(jq -j '.body // ""' <<<"$json")"
+    gh "$@" --body-file "$tmp" ;;
+  "comment-edit "*)
+    url=$2
+    re='^https://github\.com/([^/]+)/([^/]+)/(pull|issues)/([0-9]+)#'
+    if [[ $url =~ ${re}issuecomment-([0-9]+)$ ]]; then
+      api "repos/${BASH_REMATCH[1]}/${BASH_REMATCH[2]}/issues/comments/${BASH_REMATCH[5]}" PATCH
+    elif [[ $url =~ ${re}discussion_r([0-9]+)$ ]]; then
+      api "repos/${BASH_REMATCH[1]}/${BASH_REMATCH[2]}/pulls/comments/${BASH_REMATCH[5]}" PATCH
+    elif [[ $url =~ ${re}pullrequestreview-([0-9]+)$ ]]; then
+      api "repos/${BASH_REMATCH[1]}/${BASH_REMATCH[2]}/pulls/${BASH_REMATCH[4]}/reviews/${BASH_REMATCH[5]}" PUT
+    else
+      die "comment-edit takes a comment URL: .../pull/N#issuecomment-ID, #discussion_rID or #pullrequestreview-ID."
+    fi ;;
+  "api "*)
+    endpoint=$2
+    shift 2
+    api "$endpoint" POST "$@" ;;
+  *) usage ;;
+esac
