@@ -17,9 +17,10 @@
 FROM --platform=$BUILDPLATFORM busybox:1.37 AS stage
 
 COPY files/home/ /out/home/agent/
-# The hooks run directly from settings.json, so they need the exec bit; the
-# rules do not.
-RUN chown -R 1000:1000 /out/home/agent && chmod 0755 /out/home/agent/.claude/hooks/*.sh
+# The hooks run directly from settings.json and Claude runs gh-claude by path, so
+# they need the exec bit; the rules do not.
+RUN chown -R 1000:1000 /out/home/agent && \
+    chmod 0755 /out/home/agent/.claude/hooks/*.sh /out/home/agent/.claude/bin/*
 
 FROM scratch
 COPY --from=stage /out /

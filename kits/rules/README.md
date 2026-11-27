@@ -8,26 +8,31 @@ Part of [`bmoffatt/sbx-kits`](https://github.com/bmoffatt/sbx-kits). Claude rule
 | Rule | What it does |
 | --- | --- |
 | `collaborative-editing` | Re-read files before editing and prefer small targeted edits, since the user or other agents may be editing the same files concurrently. |
-| `github-banner` | Put Claude's text on GitHub (PR descriptions, comments, review and issue bodies, and edits) in sections headed by a banner with the model, effort and sandbox, and leave the user's own text alone. |
+| `github-banner` | Publish Claude's text on GitHub (PR descriptions, comments, reviews, and edits) through `gh-claude`, in a block headed by a banner with the model, effort and sandbox, and never touch the user's own text. |
 
-### The banner hook
+### gh-claude and the banner hook
 
-`github-banner` is backed by a `PreToolUse` hook (`files/home/.claude/hooks/require-github-banner.sh`). Claude's text goes in sections that start with a banner line:
+Claude publishes to GitHub through `gh-claude` (`files/home/.claude/bin/gh-claude`, installed as `~/.claude/bin/gh-claude`). Claude writes only its own text to a file; gh-claude wraps it in a block owned by the sandbox and publishes it:
 
 ```
+<!-- claude:begin id=my-project -->
 🤖 [Claude Code](https://claude.com/claude-code) · Opus 5.5 · high effort · sandbox my-project
+
+Claude's text.
+
+<!-- claude:end id=my-project -->
 ```
 
-The model comes from the session transcript, the effort from the hook input, and the sandbox name from the hostname when `IS_SANDBOX=1`. A section runs from its banner to the end, or to a `---` rule not followed by another banner, so you can write your own words above a `---` and Claude's edits keep them.
+The markers are HTML comments, so GitHub shows only the banner and the text. The model comes from the session transcript, the effort from `CLAUDE_EFFORT`, and the name from the hostname (labelled `sandbox` when `IS_SANDBOX=1`).
 
-The hook checks `gh pr|issue create|comment`, `gh pr|issue edit` and `gh pr review` with a body, `--edit-last`, and `gh api` POST/PATCH/PUT on comments, reviews, pulls or issues:
+- **New posts** (`pr create`, `pr|issue comment`, `pr review`, `api` POST) are just the block.
+- **Edits** (`pr|issue edit`, `comment-edit <URL>`, `api` PATCH/PUT) fetch the current text, replace this sandbox's block where it is, or append one after a `---` (reusing yours if the text already ends with one). Every other line passes through byte for byte. So you can write your own words above or below Claude's block, and other sandboxes' blocks are left alone.
+- **Ownership is the block id**, the sandbox name, not the banner text. A new model or effort just updates the banner. A recreated sandbox with the same name keeps its block, and one with a new name adds its own.
+- **Damaged blocks** (a missing or duplicated marker) are refused, and Claude gives you the text to paste instead. Claude never edits text outside its block; when you ask it to, it hands you copy-paste.
 
-- the text must come from a file (`--body-file`, `-F body=@file`, `--input`) written in an earlier step, so the hook sees what gh will post
-- a new post must open with the banner
-- for an edit it fetches the current text and rejects any change outside Claude's sections, and any new or changed section without the current banner
-- if it can't fetch the current text, the edit is blocked (fail closed)
+A `PreToolUse` hook (`files/home/.claude/hooks/require-github-banner.sh`) blocks `gh` commands that would post or edit text directly (`gh pr|issue create|comment`, `edit` and `pr review` with a body, `gh api` with a body) and tells Claude to use gh-claude. Text in quotes and heredocs is ignored, so writing a file that mentions those commands is fine. It keeps Claude consistent; it isn't a security boundary: `curl`, scripts and MCP GitHub tools can still post. In the plugin the hook is registered through `hooks/hooks.json` and `scripts/sync.sh` copies gh-claude to `~/.claude/bin/`; in the sbx kit the overlay ships both and an install hook merges the hook into `~/.claude/settings.json`.
 
-It ignores the stock `🤖 Generated with [Claude Code](...)` line. It does not cover MCP GitHub tools (the rule does) or commit messages. In the plugin it is registered through `hooks/hooks.json`; in the sbx kit an install hook merges it into `~/.claude/settings.json`. Tests: `bash kits/rules/tests/require-github-banner.test.sh` (needs `jq`; `gh` is faked).
+Tests: `bash kits/rules/tests/gh-claude.test.sh` and `bash kits/rules/tests/require-github-banner.test.sh` (need `jq`; `gh` is faked).
 
 ### Claude Code plugin (host)
 
