@@ -8,8 +8,9 @@ GHC="$here/../files/home/.claude/bin/gh-claude"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
-# Fake gh: GitHub is one text, $FAKE/body. Reads print it as {"body": ...}; a call
-# with --body-file F or body=@F replaces it with F. Every call goes to $FAKE/calls.
+# Fake gh: GitHub is one text, $FAKE/body. Reads print it as {"body": ..., "html_url":
+# ...}; a call with --body-file F or body=@F replaces it with F. pr/issue writes print
+# the URL, api calls the JSON, filtered by --jq. Every call goes to $FAKE/calls.
 export FAKE="$tmp/gh"
 mkdir -p "$FAKE/bin"
 cat >"$FAKE/bin/gh" <<'EOF'
@@ -17,12 +18,17 @@ cat >"$FAKE/bin/gh" <<'EOF'
 printf '%s\n' "$*" >>"$FAKE/calls"
 [ -n "${FAKE_FAIL:-}" ] && exit 1
 prev=""
+jqf=""
+wrote=""
 for a in "$@"; do
-  case $prev in --body-file) cp "$a" "$FAKE/body"; exit 0 ;; esac
-  case $a in body=@*) cp "${a#body=@}" "$FAKE/body"; exit 0 ;; esac
+  case $prev in --body-file) cp "$a" "$FAKE/body"; wrote=1 ;; --jq) jqf=$a ;; esac
+  case $a in body=@*) cp "${a#body=@}" "$FAKE/body"; wrote=1 ;; esac
   prev=$a
 done
-jq -n --rawfile b "$FAKE/body" '{body: $b}'
+url=https://github.com/o/r/pull/12#issuecomment-1
+[ -n "$wrote" ] && [ "$1" != api ] && { echo "$url"; exit 0; }
+out=$(jq -n --rawfile b "$FAKE/body" --arg u "$url" '{body: $b, html_url: $u}')
+if [ -n "$jqf" ]; then jq -r "$jqf" <<<"$out"; else printf '%s\n' "$out"; fi
 EOF
 chmod +x "$FAKE/bin/gh"
 export PATH="$FAKE/bin:$PATH"
@@ -36,7 +42,7 @@ model() {
 }
 model claude-opus-5-5
 
-BANNER='🤖 [Claude Code](https://claude.com/claude-code) · Opus 5.5 · high effort · sandbox my-project'
+BANNER='🤖 [Claude Code](https://claude.com/claude-code) · Opus 5.5 · high · sbx my-project'
 B='<!-- claude:begin id=my-project -->'
 E='<!-- claude:end id=my-project -->'
 OB='<!-- claude:begin id=other -->'
@@ -55,7 +61,7 @@ run() {
   shift 2
   cp "$FAKE/body" "$tmp/before"
   : >"$FAKE/calls"
-  bash "$GHC" "$@" >/dev/null 2>"$tmp/err"
+  bash "$GHC" "$@" >"$tmp/out" 2>"$tmp/err"
   rc=$?
   if [ "$rc" != "$exp" ]; then
     fail=$((fail + 1))
@@ -70,6 +76,13 @@ run() {
     printf 'FAIL (failed but wrote): %s\n' "$name"
   else
     pass=$((pass + 1))
+  fi
+}
+has() { # case file fixed-string
+  if grep -qF -- "$3" "$2"; then pass=$((pass + 1)); else
+    fail=$((fail + 1))
+    printf 'FAIL: %s: %s lacks %s\n' "$1" "$(basename "$2")" "$3"
+    sed 's/^/    /' "$2"
   fi
 }
 called() { # case fixed-string expected in the gh calls
@@ -126,12 +139,13 @@ printf 'Mine, edited on GitHub.  \r\n\r\n---\r\n\r\n%s\n%s\n\nNew.\n\n%s\nA foot
   "$B" "$BANNER" "$E" >"$tmp/want"
 run "own block replaced in place, the rest byte for byte" 0 "$F" pr edit 12
 
-OTHER_BLOCK=("$OB" "🤖 [Claude Code](https://claude.com/claude-code) · Sonnet 5.5 · low effort · sandbox other" "" "Theirs." "" "$OE")
+OTHER_BLOCK=("$OB" "🤖 [Claude Code](https://claude.com/claude-code) · Sonnet 5.5 · low · sbx other" "" "Theirs." "" "$OE")
 cur "Mine." "" "---" "" "${OTHER_BLOCK[@]}"
 say "Ours."
 want "Mine." "" "---" "" "${OTHER_BLOCK[@]}" "" "---" "" "$B" "$BANNER" "" "Ours." "" "$E"
 run "another sandbox's block is kept, ours appended" 0 "$F" issue edit 5 -R o/r
 called "edit passes -R to view" "issue view 5 -R o/r --json body"
+has "appending says so, naming the other block" "$tmp/err" "no block for id=my-project in the current text, so a new one was appended at the end. Left untouched: the Claude blocks of id=other."
 
 model claude-sonnet-5-5
 cur "Mine." "" "---" "" "$B" "$BANNER" "" "Old." "" "$E"
@@ -151,7 +165,9 @@ cur "Note from me." "" "---" "" "$B" "$BANNER" "" "Earlier." "" "$E"
 say "Updated."
 want "Note from me." "" "---" "" "$B" "$BANNER" "" "Updated." "" "$E"
 run "comment-edit an issue comment" 0 "$F" comment-edit 'https://github.com/o/r/pull/12#issuecomment-99'
-called "issue comment endpoint" "api repos/o/r/issues/comments/99 -X PATCH -F body=@"
+called "issue comment endpoint" "api repos/o/r/issues/comments/99 -X PATCH --jq .html_url // .url // empty -F body=@"
+[ "$(cat "$tmp/out")" = "https://github.com/o/r/pull/12#issuecomment-1" ] && [ ! -s "$tmp/err" ] && pass=$((pass + 1)) ||
+  { fail=$((fail + 1)); echo "FAIL: comment-edit prints only the URL and no note:"; sed 's/^/    /' "$tmp/out" "$tmp/err"; }
 run "comment-edit a review comment" 0 "$F" comment-edit 'https://github.com/o/r/pull/12#discussion_r77'
 called "review comment endpoint" "api repos/o/r/pulls/comments/77 -X PATCH"
 run "comment-edit a review" 0 "$F" comment-edit 'https://github.com/o/r/pull/12#pullrequestreview-55'
@@ -161,15 +177,22 @@ run "comment-edit a bad URL" 2 "$F" comment-edit 'https://github.com/o/r/pull/12
 cur ""
 want "$B" "$BANNER" "" "Updated." "" "$E"
 run "api POST, a reply" 0 "$F" api 'repos/{owner}/{repo}/pulls/12/comments/77/replies'
-called "api POST" "api repos/{owner}/{repo}/pulls/12/comments/77/replies -X POST -F body=@"
+called "api POST" "api repos/{owner}/{repo}/pulls/12/comments/77/replies -X POST --jq .html_url // .url // empty -F body=@"
 run "api with a body field" 2 "$F" api repos/o/r/issues/1/comments -f body=hi
 run "api --input" 2 "$F" api repos/o/r/issues/1/comments --input x.json
 run "api GET" 2 "$F" api repos/o/r/issues/1/comments -X GET
 
+# ---- a sub-agent: the hook exports its own transcript and effort ----
+printf '%s\n' '{"type":"assistant","message":{"model":"claude-haiku-5-5"}}' >"$tmp/agent.jsonl"
+cur ""
+say "From a sub-agent."
+want "$B" "${BANNER/Opus 5.5 · high/Haiku 5.5 · medium}" "" "From a sub-agent." "" "$E"
+GH_CLAUDE_TRANSCRIPT="$tmp/agent.jsonl" GH_CLAUDE_EFFORT=medium run "GH_CLAUDE_TRANSCRIPT and GH_CLAUDE_EFFORT win" 0 "$F" pr comment 12
+
 # ---- outside a sandbox ----
 cur ""
 say "Hi."
-want "<!-- claude:begin id=laptop -->" "🤖 [Claude Code](https://claude.com/claude-code) · Opus 5.5 · high effort" "" "Hi." "" "<!-- claude:end id=laptop -->"
+want "<!-- claude:begin id=laptop -->" "🤖 [Claude Code](https://claude.com/claude-code) · Opus 5.5 · high" "" "Hi." "" "<!-- claude:end id=laptop -->"
 IS_SANDBOX= HOSTNAME=laptop.lan run "host: id is the hostname, no sandbox part" 0 "$F" pr comment 1
 
 printf '%s passed, %s failed\n' "$pass" "$fail"

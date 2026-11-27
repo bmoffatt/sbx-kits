@@ -16,21 +16,21 @@ Claude publishes to GitHub through `gh-claude` (`files/home/.claude/bin/gh-claud
 
 ```
 <!-- claude:begin id=my-project -->
-🤖 [Claude Code](https://claude.com/claude-code) · Opus 5.5 · high effort · sandbox my-project
+🤖 [Claude Code](https://claude.com/claude-code) · Opus 5.5 · high · sbx my-project
 
 Claude's text.
 
 <!-- claude:end id=my-project -->
 ```
 
-The markers are HTML comments, so GitHub shows only the banner and the text. The model comes from the session transcript, the effort from `CLAUDE_EFFORT`, and the name from the hostname (labelled `sandbox` when `IS_SANDBOX=1`).
+The markers are HTML comments, so GitHub shows only the banner and the text. The model and effort are the calling agent's own, including sub-agents: the hook passes gh-claude the agent's transcript (where the model is) and effort level. The name comes from the hostname (labelled `sbx` when `IS_SANDBOX=1`).
 
 - **New posts** (`pr create`, `pr|issue comment`, `pr review`, `api` POST) are just the block.
 - **Edits** (`pr|issue edit`, `comment-edit <URL>`, `api` PATCH/PUT) fetch the current text, replace this sandbox's block where it is, or append one after a `---` (reusing yours if the text already ends with one). Every other line passes through byte for byte. So you can write your own words above or below Claude's block, and other sandboxes' blocks are left alone.
 - **Ownership is the block id**, the sandbox name, not the banner text. A new model or effort just updates the banner. A recreated sandbox with the same name keeps its block, and one with a new name adds its own.
-- **Damaged blocks** (a missing or duplicated marker) are refused, and Claude gives you the text to paste instead. Claude never edits text outside its block; when you ask it to, it hands you copy-paste.
+- **Damaged blocks** (a missing or duplicated marker) are refused, and Claude gives you the text to paste instead. Claude never edits text outside its block; when you ask it to, it hands you copy-paste. When an edit appends a new block because none is this sandbox's, gh-claude says so and names the other Claude blocks it left alone, so Claude can tell you.
 
-A `PreToolUse` hook (`files/home/.claude/hooks/require-github-banner.sh`) blocks `gh` commands that would post or edit text directly (`gh pr|issue create|comment`, `edit` and `pr review` with a body, `gh api` with a body) and tells Claude to use gh-claude. Text in quotes and heredocs is ignored, so writing a file that mentions those commands is fine. It keeps Claude consistent; it isn't a security boundary: `curl`, scripts and MCP GitHub tools can still post. In the plugin the hook is registered through `hooks/hooks.json` and `scripts/sync.sh` copies gh-claude to `~/.claude/bin/`; in the sbx kit the overlay ships both and an install hook merges the hook into `~/.claude/settings.json`.
+A `PreToolUse` hook (`files/home/.claude/hooks/require-github-banner.sh`) blocks `gh` commands that would post or edit text directly (`gh pr|issue create|comment`, `edit` and `pr review` with a body, `gh api` with a body) and tells Claude to use gh-claude. Reads like `--json body` or `--jq '{body: ...}'` pass. Text in quotes and heredocs is ignored, so writing a file that mentions those commands is fine. For commands that run gh-claude it also prefixes `export GH_CLAUDE_TRANSCRIPT=... GH_CLAUDE_EFFORT=...;` (via `updatedInput`), since only the hook can tell a sub-agent from its parent. It keeps Claude consistent; it isn't a security boundary: `curl`, scripts and MCP GitHub tools can still post. In the plugin the hook is registered through `hooks/hooks.json` and `scripts/sync.sh` copies gh-claude to `~/.claude/bin/`; in the sbx kit the overlay ships both and an install hook merges the hook into `~/.claude/settings.json`.
 
 Tests: `bash kits/rules/tests/gh-claude.test.sh` and `bash kits/rules/tests/require-github-banner.test.sh` (need `jq`; `gh` is faked).
 
