@@ -16,14 +16,14 @@ Claude publishes to GitHub through `gh-claude` (`files/home/.claude/bin/gh-claud
 
 ```
 <!-- claude:begin id=my-project -->
-🤖 [Claude Code](https://claude.com/claude-code) · Opus 5.5 · high effort · sandbox my-project
+🤖 [Claude Code](https://claude.com/claude-code) · Opus 5.5 · high · sbx my-project
 
 Claude's text.
 
 <!-- claude:end id=my-project -->
 ```
 
-The markers are HTML comments, so GitHub shows only the banner and the text. The model comes from the session transcript, the effort from `CLAUDE_EFFORT`, and the name from the hostname (labelled `sandbox` when `IS_SANDBOX=1`).
+The markers are HTML comments, so GitHub shows only the banner and the text. The model comes from the session transcript, the effort from `CLAUDE_EFFORT`, and the name from the hostname (labelled `sbx` when `IS_SANDBOX=1`).
 
 - **New posts** (`pr create`, `pr|issue comment`, `pr review`, `api` POST) are just the block.
 - **Edits** (`pr|issue edit`, `comment-edit <URL>`, `api` PATCH/PUT) fetch the current text, replace this sandbox's block where it is, or append one after a `---` (reusing yours if the text already ends with one). Every other line passes through byte for byte. So you can write your own words above or below Claude's block, and other sandboxes' blocks are left alone.

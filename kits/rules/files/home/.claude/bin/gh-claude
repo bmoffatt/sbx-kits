@@ -12,7 +12,7 @@
 # block that belongs to this sandbox (or host, outside a sandbox):
 #
 #   <!-- claude:begin id=my-project -->
-#   🤖 [Claude Code](https://claude.com/claude-code) · Opus 5.5 · high effort · sandbox my-project
+#   🤖 [Claude Code](https://claude.com/claude-code) · Opus 5.5 · high · sbx my-project
 #
 #   ...FILE...
 #
@@ -71,8 +71,8 @@ host=${HOSTNAME:-$(hostname 2>/dev/null)}
 host=${host%%.*}
 BANNER=$BASE
 [ -n "$model" ] && BANNER+=" · $model"
-[ -n "${CLAUDE_EFFORT:-}" ] && BANNER+=" · $CLAUDE_EFFORT effort"
-[ "${IS_SANDBOX:-}" = 1 ] && [ -n "$host" ] && BANNER+=" · sandbox $host"
+[ -n "${CLAUDE_EFFORT:-}" ] && BANNER+=" · $CLAUDE_EFFORT"
+[ "${IS_SANDBOX:-}" = 1 ] && [ -n "$host" ] && BANNER+=" · sbx $host"
 # The block's owner: the sandbox (or host) name, which outlives model and effort changes.
 ID=$(printf '%s' "${host:-claude}" | tr -c 'A-Za-z0-9._-' '-')
 

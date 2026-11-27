@@ -36,7 +36,7 @@ model() {
 }
 model claude-opus-5-5
 
-BANNER='🤖 [Claude Code](https://claude.com/claude-code) · Opus 5.5 · high effort · sandbox my-project'
+BANNER='🤖 [Claude Code](https://claude.com/claude-code) · Opus 5.5 · high · sbx my-project'
 B='<!-- claude:begin id=my-project -->'
 E='<!-- claude:end id=my-project -->'
 OB='<!-- claude:begin id=other -->'
@@ -126,7 +126,7 @@ printf 'Mine, edited on GitHub.  \r\n\r\n---\r\n\r\n%s\n%s\n\nNew.\n\n%s\nA foot
   "$B" "$BANNER" "$E" >"$tmp/want"
 run "own block replaced in place, the rest byte for byte" 0 "$F" pr edit 12
 
-OTHER_BLOCK=("$OB" "🤖 [Claude Code](https://claude.com/claude-code) · Sonnet 5.5 · low effort · sandbox other" "" "Theirs." "" "$OE")
+OTHER_BLOCK=("$OB" "🤖 [Claude Code](https://claude.com/claude-code) · Sonnet 5.5 · low · sbx other" "" "Theirs." "" "$OE")
 cur "Mine." "" "---" "" "${OTHER_BLOCK[@]}"
 say "Ours."
 want "Mine." "" "---" "" "${OTHER_BLOCK[@]}" "" "---" "" "$B" "$BANNER" "" "Ours." "" "$E"
@@ -169,7 +169,7 @@ run "api GET" 2 "$F" api repos/o/r/issues/1/comments -X GET
 # ---- outside a sandbox ----
 cur ""
 say "Hi."
-want "<!-- claude:begin id=laptop -->" "🤖 [Claude Code](https://claude.com/claude-code) · Opus 5.5 · high effort" "" "Hi." "" "<!-- claude:end id=laptop -->"
+want "<!-- claude:begin id=laptop -->" "🤖 [Claude Code](https://claude.com/claude-code) · Opus 5.5 · high" "" "Hi." "" "<!-- claude:end id=laptop -->"
 IS_SANDBOX= HOSTNAME=laptop.lan run "host: id is the hostname, no sandbox part" 0 "$F" pr comment 1
 
 printf '%s passed, %s failed\n' "$pass" "$fail"
