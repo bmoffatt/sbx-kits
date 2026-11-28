@@ -8,6 +8,7 @@ Part of [`bmoffatt/sbx-kits`](https://github.com/bmoffatt/sbx-kits). Claude rule
 | Rule | What it does |
 | --- | --- |
 | `collaborative-editing` | Re-read files before editing and prefer small targeted edits, since the user or other agents may be editing the same files concurrently. |
+| `full-urls` | Write links to GitHub issues and PRs (and other resources) as full URLs in what Claude says in the session, so they are clickable and copyable from a terminal. Text written for other destinations (PR bodies, commit messages, Slack) is unaffected. |
 | `github-banner` | Publish Claude's text on GitHub (PR descriptions, comments, reviews, and edits) through `gh-claude`, in a block headed by a banner with the model, effort and sandbox, and never touch the user's own text. |
 
 ### gh-claude and the banner hook
